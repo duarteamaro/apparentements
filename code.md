@@ -83,7 +83,7 @@ website).
     ##  9 SEINE_INFERIEURE_1
     ## 10 SEINE_INFERIEURE_2
 
-![](code_files/figure-gfm/unnamed-chunk-2-1.png)<!-- -->
+<img src="code_files/figure-gfm/unnamed-chunk-2-1.svg" alt="" width="100%" />
 
 # DV is Poujadist Vote
 
@@ -93,7 +93,7 @@ for the UFF - Poujade’s party itself.
 
 ## Visual representation
 
-![](code_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-3-2.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-3-3.png)<!-- -->
+<img src="code_files/figure-gfm/unnamed-chunk-3-1.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-3-2.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-3-3.svg" alt="" width="100%" />
 
 ## RD Robust Estimation
 
@@ -201,7 +201,7 @@ majority.
 
 ## Visualising the results with correct BW
 
-![](code_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->
+<img src="code_files/figure-gfm/unnamed-chunk-5-1.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-5-2.svg" alt="" width="100%" />
 
     ## NULL
 
@@ -555,7 +555,7 @@ primary education) and applying a minimum balance $p$-value threshold of
 As expected under the local-randomisation framework, covariate balance
 deteriorates as observations farther from the cutoff are included.
 
-![](code_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+<img src="code_files/figure-gfm/unnamed-chunk-10-1.svg" alt="" width="100%" />
 
 Whether we use the window for which the covariate balance p-value is the
 highest, or the smallest window (for which the associated p-value is
@@ -634,7 +634,7 @@ named differently, we expect that the effect will be weaker.
 
 ## Visual representation
 
-![](code_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-12-2.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-12-3.png)<!-- -->
+<img src="code_files/figure-gfm/unnamed-chunk-12-1.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-12-2.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-12-3.svg" alt="" width="100%" />
 
 ## RD Robust Estimation
 
@@ -893,7 +893,7 @@ Poujadists’ seat share in 1956, rather than merely their vote share.
 
 ## Visual representation
 
-![](code_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-16-2.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-16-3.png)<!-- -->
+<img src="code_files/figure-gfm/unnamed-chunk-16-1.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-16-2.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-16-3.svg" alt="" width="100%" />
 
 ## RD Robust Estimation
 
@@ -1145,7 +1145,7 @@ opposition to the electoral system to the same extent.
 
 Visually, the discontinuity is much less striking.
 
-![](code_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-20-2.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-20-3.png)<!-- -->
+<img src="code_files/figure-gfm/unnamed-chunk-20-1.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-20-2.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-20-3.svg" alt="" width="100%" />
 
 ## RD Robust Estimation
 
@@ -1385,7 +1385,7 @@ We now turn to turnout in 1956.
 
 ## Visual representation
 
-![](code_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-24-2.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-24-3.png)<!-- -->
+<img src="code_files/figure-gfm/unnamed-chunk-24-1.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-24-2.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-24-3.svg" alt="" width="100%" />
 
 ## RD Robust Estimation
 
@@ -1631,11 +1631,11 @@ budget revenue, and the share of people without primary education.
 Visually, we find no discontinuity as striking as that in Poujadist
 support.
 
-![](code_files/figure-gfm/unnamed-chunk-30-1.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-30-2.png)<!-- -->![](code_files/figure-gfm/unnamed-chunk-30-3.png)<!-- -->
+<img src="code_files/figure-gfm/unnamed-chunk-30-1.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-30-2.svg" alt="" width="100%" /><img src="code_files/figure-gfm/unnamed-chunk-30-3.svg" alt="" width="100%" />
 
 If we now estimate similar RD models for each variable and kernel and at
 the MSE optimal bandwidth, we can plot their estimates and confidence
 intervals. We see that, across the vast majority of specifications,
 there is no discontinuity at the cutoff.
 
-![](code_files/figure-gfm/unnamed-chunk-31-1.png)<!-- -->
+<img src="code_files/figure-gfm/unnamed-chunk-31-1.svg" alt="" width="100%" />
