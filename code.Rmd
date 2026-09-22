@@ -2,9 +2,7 @@
 title: "RDD Code"
 author: "Duarte Amaro"
 date: "2026-09-08"
-output:
-  html_document: default
-  pdf_document: default
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
