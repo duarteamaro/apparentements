@@ -1,0 +1,1464 @@
+---
+title: "RDD Code"
+author: "Duarte Amaro"
+date: "2026-09-08"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+library(readxl)
+library(tidyverse)
+library(rdrobust)
+library(rddensity)
+library(rdlocrand)
+library(rdpower)
+library(stringr)
+library(GmooG)
+library(sf)
+library(stringr)
+library(stringi)
+library(patchwork)
+
+theme_set(theme_bw())
+
+```
+
+Ahead of the 1951 legislative elctions, the *loi des apparentements* modified the existing electoral system in France by introducing the possibility of alliances between two separate lists. Elections used open-list PR, with electoral districts corresponding in most cases to the department (with the exception of a few highly populous departments like Seine, Rhône, or Nord). Two or more lists could, if they were backed by a nationally recognised party competing in at least 30 other districts, form an *apparentement*. The seat distribution would proceed as follows: if any list secured an outright 50% majority, it would fill all seats (this condition was never met); otherwise, if the sum of the votes for a group of *apparentées* lists was greater than a 50% majority, all seats were attributed to this alliance, and divided amongst them proportionally (through the highest averages method); otherwise, seats were attributed proportionally, counting each *apparentée* list together.
+
+In the context in which the law was passed, it was clearly aimed at reducing the parliamentary influence of the Communist Party (PCF) and the Gaullist RPF - two parties that mobilised clear opposition to the French Fourth Republic - and increasing that of the so-called *Troisième Force*, the centrist coalition stretching from the Socialists to the moderate Right, including the Radicals and the Christian Democrats of the MRP. Because the two parties opposing the system were at its extremes and could not ally with each other, any *apparentement* was, for them, quite unlikely. This was especially the case for the PCF. The RPF did, however, manage to form a few alliances with other right-wing parties, and, in one occasion, even with the radicals.
+
+The law did not apply to two departments (Seine and Seine-et-Oise), corresponding to Paris and its suburbs. Out of the 95 electoral districts to which it applied, only in 12 was no *apparentement* formed. In 39 electoral districts, an *apparentement* secured over 50% of the vote and therefore gained all of the district's seats. Consider the example of the department of Vienne. The PCF arrived first with 24% of the vote, followed by the RPF with 21%. The MRP scored 13%, the Radicals 12%, and the final quarter of the vote went to four other centrist parties. However, the department's four seats went to centrist group which, having formed an *apparentement*, scored just over 53% of the vote, leaving the two first-placed parties without parliamentary representation.
+
+This bonus likely contributed to a greater majority than the *Troisième Force* would otherwise have secured, but what were its political implications later on? Especially given the rise of the Poujadist movement in the following years, it is plausible that this electoral reform may have actually increased support for later anti-system parties. This is what this paper aims to explore, leveraging the 50% threshold in a regression discontinuity (RD) design. 
+
+We obtain electoral data on the 1951 and 1956 elections from the official publications by the French Ministry of the Interior as well as from the sessions of the National Assembly in which the results were officially validated. We also obtain a few other socioeconomic variables from several statistical publications from the time (the "Tableaux de l'économie française" and the "Annuaire statistique de la France", published by the *Institut national de la statistique et des études économiques*, and available as a PDF in the French National Library's website).
+
+```{r}
+
+d1951 <- read_xlsx("data/d1951.xlsx")
+
+d1956 <- read_xlsx("data/d1956.xlsx")
+
+d0 <- full_join(d1951, d1956, by = "old_department") |>
+  mutate(
+    voix_pcf_1956 = as.numeric(voix_pcf_1956),
+    voix_pcf_1956_AN = as.numeric(voix_pcf_1956_AN),
+    sieges_pcf_1956 = as.numeric(sieges_pcf_1956),
+    
+    apparentement_share = apparentement_voix_1951/exprimes_1951,
+    running = apparentement_share - 0.5,
+    
+    poujadist_apparentes_1956 = voix_uff_1956/exprimes_1956,
+    poujadist_1956 = voix_uff_1956_AN/exprimes_1956_AN,
+    seats_poujadists = sieges_uff_1956/sieges_a_pourvoir,
+    
+    pcf_1956 = voix_pcf_1956/exprimes_1956,
+    pcf_1956_AN = voix_pcf_1956_AN/exprimes_1956_AN,
+    seats_pcf = sieges_pcf_1956/sieges_a_pourvoir,
+    
+    turnout_1956 = votants_1956/inscrits_1956,
+    turnout_1951 = votants_1951/inscrits_1951
+  )
+
+covs <- readxl::read_xlsx("data/covs.xlsx") |>
+  mutate(
+    old_department = toupper(Départements),
+    
+    old_department = case_when(
+      old_department == "ALPES" & dep_cont == "(Basses-)" ~ "BASSES_ALPES",
+      old_department == "ALPES" & dep_cont == "(Hautes-)" ~ "HAUTES_ALPES",
+      old_department == "ALPES-MARITIMES" ~ "ALPES_MARITIMES",
+      old_department == "ARDÈCHE"             ~ "ARDECHE",
+      old_department == "ARIÈGE"              ~ "ARIEGE",
+      old_department == "BOUCHES-DU-RHÔNE"    ~ "BOUCHES_DU_RHONE",
+      old_department == "CHARENTE-MARITIME"   ~ "CHARENTE_MARITIME",
+      old_department == "CORRÈZE"             ~ "CORREZE",
+      old_department == "CÔTE-D'OR"           ~ "COTE_DOR",
+      old_department == "CÔTT'S-DU-NORD"      ~ "COTES_DU_NORD",
+      old_department == "DRÔME"               ~ "DROME",
+      old_department == "EURE-ET-LOIR"        ~ "EURE_ET_LOIR",
+      old_department == "FINISTÈRE"            ~ "FINISTERE",
+      old_department == "GARONNE" ~ "HAUTE_GARONNE",
+      old_department == "HÉRAULT"             ~ "HERAULT",
+      old_department == "ILLE-ET-VILAINE"     ~ "ILLE_ET_VILAINE",
+      old_department == "INDRE-ET-LOIRE"      ~ "INDRE_ET_LOIRE",
+      old_department == "ISÈRE"               ~ "ISERE",
+      old_department == "LOIR-ET-CHER"        ~ "LOIR_ET_CHER",
+      old_department == "LOIRE" & is.na(dep_cont) ~ "LOIRE",
+      old_department == "LOIRE" & dep_cont == "(Haute-)" ~ "HAUTE_LOIRE",
+      old_department == "LOIRE-INTÉRIEURE"    ~ "LOIRE_INFERIEURE",
+      old_department == "LOT-ET-GARONNE"      ~ "LOT_ET_GARONNE",
+      old_department == "LOZÈRE"              ~ "LOZERE",
+      old_department == "MAINE-ET-LOIRE"      ~ "MAINE_ET_LOIRE",
+      old_department == "MARNE" & is.na(dep_cont) ~ "MARNE",
+      old_department == "MARNE" & dep_cont == "(Haute-)" ~ "HAUTE_MARNE",
+      old_department == "MEURTHE-ET-MOSELLE"  ~ "MEURTHE_ET_MOSELLE",
+      old_department == "NIÈVRE"              ~ "NIEVRE",
+      old_department == "PAS-DE-CALAIS"       ~ "PAS_DE_CALAIS",
+      old_department == "PUY-DE-DÔME"         ~ "PUY_DE_DOME",
+      old_department == "PYRÉNÉES" & dep_cont == "(Basses-)" ~ "BASSES_PYRENEES",
+      old_department == "PYRÉNÉES" & dep_cont == "(Hautes-)" ~ "HAUTES_PYRENEES",
+      old_department == "PYRÉNÉES-ORIENTALES" ~ "PYRENEES_ORIENTALES",
+      old_department == "RHIN" & dep_cont == "(Bas-)" ~ "BAS_RHIN",
+      old_department == "RHIN" & dep_cont == "(Haut-)" ~ "HAUT_RHIN",
+      old_department == "RHÔNE"               ~ "RHONE",
+      old_department == "SAÔNE"      ~ "HAUTE_SAONE",
+      old_department == "SAÔNE-ET-LOIRE"      ~ "SAONE_ET_LOIRE",
+      old_department == "SAVOIE" & is.na(dep_cont) ~ "SAVOIE",
+      old_department == "SAVOIE" & dep_cont == "(Haute-)" ~ "HAUTE_SAVOIE",
+      old_department == "SEINE-MARITIME"      ~ "SEINE_INFERIEURE",
+      old_department == "SEINE-ET-MARNE"      ~ "SEINE_ET_MARNE",
+      old_department == "SEINE-ET-OISE"       ~ "SEINE_ET_OISE",
+      old_department == "SÈVRES(DEUX-)"       ~ "DEUX_SEVRES",
+      old_department == "TARN-ET-GARONNE"     ~ "TARN_ET_GARONNE",
+      old_department == "VENDÉE"              ~ "VENDEE",
+      old_department == "VIENNE" & is.na(dep_cont) ~ "VIENNE",
+      old_department == "VIENNE" & dep_cont == "(Haute-)" ~ "HAUTE_VIENNE",
+      old_department == "BELFORT"             ~ "TERRITOIRE_DE_BELFORT",
+      TRUE                                    ~ old_department
+      
+    ),
+    
+    n_dep = N,
+    prop_etranger = `Étrangers`/`Population totale 1954`,
+    prop_agri = 1000*`Agriculteurs (thousands)`/`Population totale 1954`,
+    prop_agri_broad = (1000*(`Agriculteurs (thousands)`+`Salariés agricoles (thousands)`))/`Population totale 1954`,
+    prop_ouvriers = 1000*`Ouvriers (thousands)`/`Population totale 1954`,
+    prop_chom = `Pourcentage de travailleurs sans emploi par rapport à l'ensemble de la population salariée du département`,
+    budget_rev = as.integer(`Recettes budgétaires (million de francs)`),
+    share_no_cep = (`Masculin - Néant` + `Féminin - Néant`)/(`Masculin - Ensemble` + `Féminin - Ensemble`),
+    share_no_cep_broader = (`Masculin - Néant` + `Masculin - Non déclaré` + `Féminin - Néant` + `Féminin - Non déclaré`)/(`Masculin - Ensemble` + `Féminin - Ensemble`),
+  ) |>
+  dplyr::select(n_dep, old_department, prop_etranger, prop_agri, prop_agri_broad,
+                prop_ouvriers, prop_chom, budget_rev, share_no_cep, share_no_cep_broader)
+
+d1 <- d0 |> 
+  full_join(covs) |>
+  arrange(n_dep) |>
+  filter(was_apparentement_1951 == 1)
+
+d2 <- d1 |> filter(alliance_includes_rpf == 0)
+
+d0 |> 
+  filter(!(old_department %in% c("SEINE_ET_OISE_1", "SEINE_ET_OISE_2"))) |> 
+  mutate(type = case_when(apparentement_won_1951 == 0 ~ "Apparentement Lost", 
+                          apparentement_won_1951 == 1 ~ "Apparentement Won", 
+                          is.na(apparentement_won_1951) ~ "No Apparentement")) |> 
+  group_by(type) |> 
+  summarise(count = n()) |> 
+  ungroup() |> 
+  mutate(share = count/95) |> 
+  tibble()
+
+```
+
+
+```{r}
+
+data("France54Map")
+
+france54_0 <- France54Map |>
+  st_as_sf()
+
+france54 <- france54_0 %>%
+  mutate(
+    Dept = case_when(
+      Dept == "Côte-d’Or" ~ "Cote dOr",
+      Dept == "Paris" ~ "Seine",
+      Dept == "Loire-Inf" ~ "Loire Inferieure",
+      Dept == "Seine-Inf" ~ "Seine Inferieure",
+      Dept == "Bses Alpes" ~ "Basses Alpes", 
+      Dept == "Bses Pyrenées" ~ "Basses Pyrenées", 
+      Dept == "Belfort" ~ "Territoire de Belfort",
+      Dept == "Loire-et-Cher" ~ "Loir et Cher",
+      .default = Dept
+    ),
+    old_department = Dept %>%
+      stri_trans_general("Latin-ASCII") %>%
+      str_to_upper() %>%
+      str_replace_all("[- ']", "_") %>%
+      str_replace_all("_+", "_")
+  )
+
+anti_join(
+  d2 %>% distinct(old_department),
+  france54 %>% st_drop_geometry() %>% distinct(old_department),
+  by = "old_department"
+)
+
+france54_d2 <- france54 %>%
+  left_join(d0, 
+              by = "old_department") |>
+  mutate(category = case_when(
+                is.na(was_apparentement_1951) | was_apparentement_1951 == 0 ~ "No Apparentements/Multi-constituency department",
+                was_apparentement_1951 == 1 & alliance_includes_rpf == 1 &
+                  apparentement_won_1951 == 0 ~ "RPF Apparentement Lost",
+                was_apparentement_1951 == 1 & alliance_includes_rpf == 1 &
+                  apparentement_won_1951 == 1 ~ "RPF Apparentement Won",
+                was_apparentement_1951 == 1 & alliance_includes_rpf == 0 &
+                  apparentement_won_1951 == 0 ~ "Centrist Apparentement Lost",
+                was_apparentement_1951 == 1 & alliance_includes_rpf == 0 &
+                  apparentement_won_1951 == 1 ~ "Centrist Apparentement Won")) |>
+              dplyr::select(old_department, category)
+
+ggplot(france54_d2) +
+  geom_sf(
+    aes(fill = category),
+    colour = NA,
+    #linewidth = 0.2
+  ) +
+  scale_fill_manual(values = c(
+    "No Apparentements/Multi-constituency department" = "grey",
+    "RPF Apparentement Lost" = "steelblue",
+    "RPF Apparentement Won" = "navy",
+    "Centrist Apparentement Lost" = "salmon",
+    "Centrist Apparentement Won" = "red3"),
+    breaks = c("RPF Apparentement Lost",
+    "RPF Apparentement Won",
+    "Centrist Apparentement Lost",
+    "Centrist Apparentement Won",
+    "No Apparentements/Multi-constituency department"),
+    name = "") +
+  labs(title = "Distribution of Apparentements") +
+  guides(fill=guide_legend(nrow=3,byrow=TRUE)) +
+  theme(legend.position = "bottom")
+
+```
+
+
+
+
+
+# DV is Poujadist Vote
+
+We are first limiting the sample to the set of departments where a centrist *apparentement* was agreed, and examining as the DV the support for the UFF - Poujade's party itself.
+
+## Visual representation
+
+```{r}
+
+d2 |> 
+  mutate(crossed_50 = as.factor(apparentement_won_1951)) |> 
+  ggplot(aes(x = running, 
+             y = poujadist_1956, 
+             colour = crossed_50, 
+             fill = crossed_50)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") +
+  guides(colour = "none", fill = "none") +
+  labs(x = "Running variable", y = "Poujadist Vote in 1956")
+
+rdplot(y = d2$poujadist_1956, x = d2$running)
+ 
+rdplot(y = d2$poujadist_1956, x = d2$running, p = 1)
+
+```
+
+## RD Robust Estimation
+
+We use the `rdrobust` package developed by Cattaneo and co-authors to estimate the regression discontinuity models, as it implements data-driven bandwidth selection and bias-corrected inference. 
+
+The mean-squared-error optimal bandwidth selection procedure determines how much of the data around the cutoff should be used by balancing the greater precision obtained from a wider bandwidth against the increased risk of bias from observations farther from the cutoff. Bandwidths are selected separately on either side of the cutoff to account for differences in the distribution and relationship between the running and outcome variables. Inference is based on robust bias-corrected standard errors and confidence intervals, which account for the additional uncertainty associated with estimating and correcting the bias of the local polynomial estimator.
+
+The effect is significant at the 5% when using employing a triangular and Epanechnikov kernel, and the substantive magnitude is of 7.6 to 7.8 percentage points - a substantial increase in support for the Poujadists. This means that in district where a centrist *apparentement* narrowly won a majority (and therefore secured all seats) in 1951, the Poujadists scored about 7 percentage points higher in 1956, compared to districts where a centrist *apparentement* narrowly failed to win a majority.
+
+```{r}
+
+rdd_no_rpf_tri <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "triangular"
+)
+
+rdd_no_rpf_epa <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "epanechnikov"
+)
+
+rdd_no_rpf_uni <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "uniform"
+)
+
+summary(rdd_no_rpf_tri)
+
+summary(rdd_no_rpf_epa)
+
+summary(rdd_no_rpf_uni)
+
+```
+
+## Visualising the results with correct BW
+
+```{r}
+
+bandwidth = rdd_no_rpf_tri$bws[1,1]
+
+d_bw <- d2 |> filter(abs(running) <= bandwidth)
+
+d_bw |> 
+  mutate(crossed_50 = as.factor(apparentement_won_1951)) |> 
+  ggplot(aes(x = running, 
+             y = poujadist_1956, 
+             colour = crossed_50, 
+             fill = crossed_50)) + 
+  geom_point() + 
+  #geom_smooth(method = "lm") +
+  guides(colour = "none", fill = "none") +
+  labs(x = "Running variable", y = "Poujadist Vote in 1956")
+
+rdplot(y = d_bw$poujadist_1956, 
+       x = d_bw$running, 
+       p = 1, 
+       kernel = "triangular") +
+  ylim(c(0, 0.225))
+  
+
+```
+
+## Including RPF Apparentement Departments
+
+If we now include departments where an *apparentement* was established not between the centrists but between some centrist parties (usually the Independents and Peasants or the Christian Democrats of the MRP) and the Gaullists, we might expect to find a weaker effect. Voters in these departments might presumably still find the electoral law unjust but the oligolopoly and anti-extremist element that one might hypothesise would drive increased support for the Poujadists in the next electoral cycle would be diminished. Indeed, this is what we find. The effects remain significant but decrease in magnitude.
+
+```{r}
+
+rdd_all_tri <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  c = 0,
+  kernel = "triangular",
+  data = d1
+)
+
+rdd_all_epa <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  c = 0,
+  kernel = "epanechnikov",
+  data = d1
+)
+
+rdd_all_uni <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  c = 0,
+  kernel = "uniform",
+  data = d1
+)
+
+summary(rdd_all_tri)
+
+summary(rdd_all_epa)
+
+summary(rdd_all_uni)
+
+```
+
+# Diagnostics
+
+## Density at the cutoff
+
+We can test for potential manipulations of the running variable around the cutoff using the `rddensity()` procedure, which tests for a discontinuity in the density of the running variable at the cutoff using local polynomial density estimation. The test provides no evidence of a density discontinuity at the cutoff. The binomial tests also show no significant imbalance in the number of observations on either side of the cutoff across the examined windows.
+
+```{r}
+
+dens <- rddensity(d2$running)
+
+summary(dens)
+
+```
+
+## Placebo cutoff
+
+We see that no similar discontinuity can be found at a placebo cut-off (say, 55% rather than 50%).
+
+```{r}
+
+rdd_placebo_cutoff_tri <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  c = 0.05,
+  data = d2,
+  kernel = "triangular"
+)
+
+rdd_placebo_cutoff_epa <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  c = 0.05,
+  data = d2,
+  kernel = "epanechnikov"
+)
+
+rdd_placebo_cutoff_uni <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  c = 0.05,
+  data = d2,
+  kernel = "uniform"
+)
+
+rdd_placebo_cutoff_tri_covs <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  covs = c("prop_etranger", "prop_agri", "prop_ouvriers", 
+           "prop_chom", "budget_rev", "share_no_cep"),
+  c = 0.05,
+  data = d2,
+  kernel = "triangular"
+)
+
+rdd_placebo_cutoff_epa_covs <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  covs = c("prop_etranger", "prop_agri", "prop_ouvriers", 
+           "prop_chom", "budget_rev", "share_no_cep"),
+  c = 0.05,
+  data = d2,
+  kernel = "epanechnikov"
+)
+
+rdd_placebo_cutoff_uni_covs <- rdrobust(
+  y = poujadist_1956,
+  x = running,
+  covs = c("prop_etranger", "prop_agri", "prop_ouvriers", 
+           "prop_chom", "budget_rev", "share_no_cep"),
+  c = 0.05,
+  data = d2,
+  kernel = "uniform"
+)
+
+summary(rdd_placebo_cutoff_tri)
+summary(rdd_placebo_cutoff_epa)
+summary(rdd_placebo_cutoff_uni)
+summary(rdd_placebo_cutoff_tri_covs)
+summary(rdd_placebo_cutoff_epa_covs)
+summary(rdd_placebo_cutoff_uni_covs)
+
+```
+
+
+## Power calculation
+
+We see that we have few concerns regarding the power of our data for our inferences, despite the low N.
+
+```{r}
+
+rdpower(data = data.frame(Y = d2$poujadist_1956, R = d2$running), tau = 0.1)
+
+```
+
+## Local randomisation
+
+Unlike traditional RD designs which we leverage earlier, local randomisation assumes not that the dependent variable evolves linearly (but for the discontinuity) as the running variable changes but instead that, for a sufficiently small window around the cutoff, one can assume that the treatment assignment is as good as random, and therefore use a mere difference in means.
+
+While this assumption is untestable, one can select the appropriate window by examining how covariate balance changes at different values.
+
+We use `rdwinselect()` from the R package `rdlocrand` to select the local-randomisation window around the zero cutoff, testing balance across six predetermined covariates (the share of non-French peope, the share of farmers, the share of industrial workers, the unemployment rate, the department's budget revenue, and the share of people without primary education) and applying a minimum balance \(p\)-value threshold of 0.10, with candidate windows increasing in increments of 0.005.
+
+As expected under the local-randomisation framework, covariate balance deteriorates as observations farther from the cutoff are included.
+
+```{r}
+d_lr <- d2 |> filter(!is.na(prop_etranger) &
+                       !is.na(prop_agri) &
+                       !is.na(prop_ouvriers) &
+                       !is.na(prop_chom) &
+                       !is.na(budget_rev) &
+                       !is.na(share_no_cep))
+
+win <- rdwinselect(
+  R = d_lr$running,
+  X =  d_lr |>
+    dplyr::select(
+      c(
+        "prop_etranger",
+        "prop_agri",
+        "prop_ouvriers",
+        "prop_chom",
+        "budget_rev",
+        "share_no_cep"
+      )
+    ),
+  level = 0.1,
+  cutoff = 0,
+  wstep = 0.005,
+  quietly = TRUE
+)
+
+win$results |> 
+  as.data.frame() |> 
+  mutate(x = row_number() |> as.factor()) |> 
+  ggplot(aes(x = w_right, y = `p-value`)) + 
+  geom_point() +
+  labs(x = "Window (abs)", y = "P Value", title = "Covariate-Balance P-Value")
+```
+
+Whether we use the window for which the covariate balance p-value is the highest, or the smallest window (for which the associated p-value is still 0.137), we still obtain a positive and significant difference in means.
+
+```{r}
+
+locrand_1 <- rdrandinf(Y = d_lr$poujadist_1956,
+                       R = d_lr$running,
+                       covariates = d_lr |> 
+                         dplyr::select(c("prop_etranger", "prop_agri",
+                                         "prop_ouvriers", "prop_chom",
+                                         "budget_rev", "share_no_cep")),
+                       wstep = 0.005,
+                       reps = 10000,
+                       level = 0.1,
+                       seed = 1956)
+
+wl <- win$results[1, "w_left"]
+wr <- win$results[1, "w_right"]
+
+locrand_2 <- rdrandinf(Y = d_lr$poujadist_1956,
+                       R = d_lr$running,
+                       covariates = d_lr |> 
+                         dplyr::select(c("prop_etranger", "prop_agri",
+                                         "prop_ouvriers", "prop_chom",
+                                         "budget_rev", "share_no_cep")),
+                       wstep = 0.005,
+                       wl = wl,
+                       wr = wr,
+                       reps = 10000,
+                       level = 0.1,
+                       seed = 1956)
+
+
+
+```
+
+# DV is Poujadist + Apparantés Vote
+
+We now consider the sum of support for the Poujadists and their allies. As their allies did not field candidates everywhere and their lists were named differently, we expect that the effect will be weaker.
+
+## Visual representation
+
+```{r}
+
+d2 |> 
+  mutate(crossed_50 = as.factor(apparentement_won_1951)) |> 
+  ggplot(aes(x = running, 
+             y = poujadist_apparentes_1956, 
+             colour = crossed_50, 
+             fill = crossed_50)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") +
+  guides(colour = "none", fill = "none") +
+  labs(x = "Running variable", y = "Poujadist Vote in 1956")
+
+rdplot(y = d2$poujadist_apparentes_1956, x = d2$running)
+ 
+rdplot(y = d2$poujadist_apparentes_1956, x = d2$running, p = 1)
+
+```
+
+## RD Robust Estimation
+
+The effect is less robust to different model specifications. We consider first solely the departments without an RPF *apparentement* in 1951. Using a triangular kernel, the effect is significant at the 5% level; with an Epanechnikov kernel, it now has a p-value of 0.06. Using a uniform kernel, and therefore weighting observations farther away from, and closer to, the cutoff equally, the p-value is greater than 0.1.
+
+Compared to the equivalent results using only the vote share for the UFF (Pierre Poujade's party), the magnitude of the point estimates is also a little lower.
+
+```{r}
+
+rdd_no_rpf_tri <- rdrobust(
+  y = poujadist_apparentes_1956,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "triangular"
+)
+
+rdd_no_rpf_epa <- rdrobust(
+  y = poujadist_apparentes_1956,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "epanechnikov"
+)
+
+rdd_no_rpf_uni <- rdrobust(
+  y = poujadist_apparentes_1956,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "uniform"
+)
+
+summary(rdd_no_rpf_tri)
+
+summary(rdd_no_rpf_epa)
+
+summary(rdd_no_rpf_uni)
+```
+
+The results are similar if we extend the sample to departments with RPF *apparentements* in 1951: again the estimate is significant using a triangular kernel, significant only at the 10% level with an Epanechnikov kernel, and not significant at conventional levels using a uniform kernel.
+
+```{r}
+rdd_all_tri <- rdrobust(
+  y = poujadist_apparentes_1956,
+  x = running,
+  c = 0,
+  kernel = "triangular",
+  data = d1
+)
+
+rdd_all_epa <- rdrobust(
+  y = poujadist_apparentes_1956,
+  x = running,
+  c = 0,
+  kernel = "epanechnikov",
+  data = d1
+)
+
+rdd_all_uni <- rdrobust(
+  y = poujadist_apparentes_1956,
+  x = running,
+  c = 0,
+  kernel = "uniform",
+  data = d1
+)
+
+summary(rdd_all_tri)
+
+summary(rdd_all_epa)
+
+summary(rdd_all_uni)
+```
+
+## Local randomisation
+
+With local randomisation, and using the same windows as above, the difference in means is significant at the 5% level (and, interestingly, greater in magnitude than its corresponding estimate for UFF vote alone).
+
+```{r}
+
+locrand_1 <- rdrandinf(Y = d_lr$poujadist_apparentes_1956,
+                       R = d_lr$running,
+                       covariates = d_lr |> 
+                         dplyr::select(c("prop_etranger", "prop_agri",
+                                         "prop_ouvriers", "prop_chom",
+                                         "budget_rev", "share_no_cep")),
+                       wstep = 0.005,
+                       reps = 10000,
+                       level = 0.1,
+                       seed = 1956)
+
+wl <- win$results[1, "w_left"]
+wr <- win$results[1, "w_right"]
+
+locrand_2 <- rdrandinf(Y = d_lr$poujadist_apparentes_1956,
+                       R = d_lr$running,
+                       covariates = d_lr |> 
+                         dplyr::select(c("prop_etranger", "prop_agri",
+                                         "prop_ouvriers", "prop_chom",
+                                         "budget_rev", "share_no_cep")),
+                       wstep = 0.005,
+                       wl = wl,
+                       wr = wr,
+                       reps = 10000,
+                       level = 0.1,
+                       seed = 1956)
+
+```
+
+
+
+# DV is Poujadist seat share
+
+These findings suggest that the *apparentement* strategy in 1951 fueled support for the Poujadists in 1956. But did this actually affect the number of Poujadist MPs - people like Jean-Marie Le Pen at the start of his political career? Let us consider the effect of a centrist *apparentement* narrowly winning a majority or not in 1951 on the Poujadists' seat share in 1956, rather than merely their vote share.
+
+## Visual representation
+
+```{r}
+
+d2 |> 
+  mutate(crossed_50 = as.factor(apparentement_won_1951)) |> 
+  ggplot(aes(x = running, 
+             y = seats_poujadists, 
+             colour = crossed_50, 
+             fill = crossed_50)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") +
+  guides(colour = "none", fill = "none") +
+  labs(x = "Running variable", y = "Poujadist Vote in 1956")
+
+rdplot(y = d2$seats_poujadists, x = d2$running)
+ 
+rdplot(y = d2$seats_poujadists, x = d2$running, p = 1)
+
+```
+
+## RD Robust Estimation
+
+The effect is significant and positive, between 17 and 19 percentage points. This is substantial - the median seat share per department (among those where a centrist *apparentement* took place in 1951) was 0, and the standard deviation was 10 percentage points. 
+
+```{r}
+
+rdd_no_rpf_tri <- rdrobust(
+  y = seats_poujadists,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "triangular"
+)
+
+rdd_no_rpf_epa <- rdrobust(
+  y = seats_poujadists,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "epanechnikov"
+)
+
+rdd_no_rpf_uni <- rdrobust(
+  y = seats_poujadists,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "uniform"
+)
+
+summary(rdd_no_rpf_tri)
+
+summary(rdd_no_rpf_epa)
+
+summary(rdd_no_rpf_uni)
+```
+
+The results are similar if we extend the sample to departments with RPF *apparentements* in 1951, although smaller in magnitude.
+
+```{r}
+rdd_all_tri <- rdrobust(
+  y = seats_poujadists,
+  x = running,
+  c = 0,
+  kernel = "triangular",
+  data = d1
+)
+
+rdd_all_epa <- rdrobust(
+  y = seats_poujadists,
+  x = running,
+  c = 0,
+  kernel = "epanechnikov",
+  data = d1
+)
+
+rdd_all_uni <- rdrobust(
+  y = seats_poujadists,
+  x = running,
+  c = 0,
+  kernel = "uniform",
+  data = d1
+)
+
+summary(rdd_all_tri)
+
+summary(rdd_all_epa)
+
+summary(rdd_all_uni)
+```
+
+## Local randomisation
+
+With local randomisation, and using the same windows as above, the difference in means is significant at the 5% level for the window with the highest p-value, although not significant at conventional levels for the smallest window.
+
+```{r}
+
+locrand_1 <- rdrandinf(Y = d_lr$seats_poujadists,
+                       R = d_lr$running,
+                       covariates = d_lr |> 
+                         dplyr::select(c("prop_etranger", "prop_agri",
+                                         "prop_ouvriers", "prop_chom",
+                                         "budget_rev", "share_no_cep")),
+                       wstep = 0.005,
+                       reps = 10000,
+                       level = 0.1,
+                       seed = 1956)
+
+wl <- win$results[1, "w_left"]
+wr <- win$results[1, "w_right"]
+
+locrand_2 <- rdrandinf(Y = d_lr$seats_poujadists,
+                       R = d_lr$running,
+                       covariates = d_lr |> 
+                         dplyr::select(c("prop_etranger", "prop_agri",
+                                         "prop_ouvriers", "prop_chom",
+                                         "budget_rev", "share_no_cep")),
+                       wstep = 0.005,
+                       wl = wl,
+                       wr = wr,
+                       reps = 10000,
+                       level = 0.1,
+                       seed = 1956)
+
+```
+
+
+# DV is PCF vote
+
+We now consider support for the PCF. As the main target of the *loi des apparentements*, one might expect that it would be the most likely actor to benefit from any popular backlash to it. However, the Communists were also a large and pre-existing party, which had been in the provisional governments following the war and which may not have mobilised opposition to the electoral system to the same extent. 
+
+## Visual representation
+
+Visually, the discontinuity is much less striking.
+
+```{r}
+
+d2 |> 
+  mutate(crossed_50 = as.factor(apparentement_won_1951)) |> 
+  ggplot(aes(x = running, 
+             y = pcf_1956, 
+             colour = crossed_50, 
+             fill = crossed_50)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") +
+  guides(colour = "none", fill = "none") +
+  labs(x = "Running variable", y = "PCF Vote in 1956")
+
+
+rdplot(y = d2$pcf_1956, x = d2$running)
+
+rdplot(y = d2$pcf_1956, x = d2$running, p = 1)
+
+```
+
+## RD Robust Estimation
+
+we find no effect of an *apparentement* narrowly winning all the department's seats on subsequent support for the Communist party, when examining only departments without RPF *apparentements*.
+
+```{r}
+
+rdd_no_rpf_tri <- rdrobust(
+  y = pcf_1956,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "triangular"
+)
+
+rdd_no_rpf_epa <- rdrobust(
+  y = pcf_1956,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "epanechnikov"
+)
+
+rdd_no_rpf_uni <- rdrobust(
+  y = pcf_1956,
+  x = running,
+  c = 0,
+  data = d2,,
+  kernel = "uniform"
+)
+
+summary(rdd_no_rpf_tri)
+
+summary(rdd_no_rpf_epa)
+
+summary(rdd_no_rpf_uni)
+
+```
+
+As before, the effect remains insignificant at conventional levels when including RPF *apparentements*.
+
+```{r}
+
+rdd_all_tri <- rdrobust(
+  y = pcf_1956,
+  x = running,
+  c = 0,
+  kernel = "triangular",
+  data = d1
+)
+
+rdd_all_epa <- rdrobust(
+  y = pcf_1956,
+  x = running,
+  c = 0,
+  kernel = "epanechnikov",
+  data = d1
+)
+
+rdd_all_uni <- rdrobust(
+  y = pcf_1956,
+  x = running,
+  c = 0,
+  kernel = "uniform",
+  data = d1
+)
+
+summary(rdd_all_tri)
+
+summary(rdd_all_epa)
+
+summary(rdd_all_uni)
+
+```
+
+Finally, local randomisation also yields no significant difference in means at the same windows as above.
+
+```{r}
+
+locrand_1 <- rdrandinf(Y = d_lr$pcf_1956,
+                       R = d_lr$running,
+                       covariates = d_lr |> 
+                         dplyr::select(c("prop_etranger", "prop_agri",
+                                         "prop_ouvriers", "prop_chom",
+                                         "budget_rev", "share_no_cep")),
+                       wstep = 0.005,
+                       reps = 10000,
+                       level = 0.1,
+                       seed = 1956)
+
+wl <- win$results[1, "w_left"]
+wr <- win$results[1, "w_right"]
+
+locrand_2 <- rdrandinf(Y = d_lr$pcf_1956,
+                       R = d_lr$running,
+                       covariates = d_lr |> 
+                         dplyr::select(c("prop_etranger", "prop_agri",
+                                         "prop_ouvriers", "prop_chom",
+                                         "budget_rev", "share_no_cep")),
+                       wstep = 0.005,
+                       wl = wl,
+                       wr = wr,
+                       reps = 10000,
+                       level = 0.1,
+                       seed = 1956)
+
+
+```
+
+# DV is 1956 Turnout
+
+We now turn to turnout in 1956.
+
+## Visual representation
+
+```{r}
+
+d2 |> 
+  mutate(crossed_50 = as.factor(apparentement_won_1951)) |> 
+  ggplot(aes(x = running, 
+             y = turnout_1956, 
+             colour = crossed_50, 
+             fill = crossed_50)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") +
+  guides(colour = "none", fill = "none") +
+  labs(x = "Running variable", y = "Turnout in 1956")
+
+
+rdplot(y = d2$turnout_1956, x = d2$running)
+
+rdplot(y = d2$turnout_1956, x = d2$running, p = 1)
+
+```
+
+## RD Robust Estimation
+
+As one might have expected given the plots above, there is no significant discontinuity at the cutoff when examining 1956 turnout among departments with a centrist *apparentement* in 1951.
+
+```{r}
+
+rdd_no_rpf_tri <- rdrobust(
+  y = turnout_1956,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "triangular"
+)
+
+rdd_no_rpf_epa <- rdrobust(
+  y = turnout_1956,
+  x = running,
+  c = 0,
+  data = d2,
+  kernel = "epanechnikov"
+)
+
+rdd_no_rpf_uni <- rdrobust(
+  y = turnout_1956,
+  x = running,
+  c = 0,
+  data = d2,,
+  kernel = "uniform"
+)
+
+summary(rdd_no_rpf_tri)
+
+summary(rdd_no_rpf_epa)
+
+summary(rdd_no_rpf_uni)
+
+```
+The effect remains insignificant when considering the extended sample of all *apparentement* departments.
+
+```{r}
+
+rdd_all_tri <- rdrobust(
+  y = turnout_1956,
+  x = running,
+  c = 0,
+  kernel = "triangular",
+  data = d1
+)
+
+rdd_all_epa <- rdrobust(
+  y = turnout_1956,
+  x = running,
+  c = 0,
+  kernel = "epanechnikov",
+  data = d1
+)
+
+rdd_all_uni <- rdrobust(
+  y = turnout_1956,
+  x = running,
+  c = 0,
+  kernel = "uniform",
+  data = d1
+)
+
+summary(rdd_all_tri)
+
+summary(rdd_all_epa)
+
+summary(rdd_all_uni)
+
+```
+
+The difference in means yielded by the local randomisation procedure is also insignificant.
+
+```{r}
+
+locrand_1 <- rdrandinf(Y = d_lr$turnout_1956,
+                       R = d_lr$running,
+                       covariates = d_lr |> 
+                         dplyr::select(c("prop_etranger", "prop_agri",
+                                         "prop_ouvriers", "prop_chom",
+                                         "budget_rev", "share_no_cep")),
+                       wstep = 0.005,
+                       reps = 10000,
+                       level = 0.1,
+                       seed = 1956)
+
+wl <- win$results[1, "w_left"]
+wr <- win$results[1, "w_right"]
+
+locrand_2 <- rdrandinf(Y = d_lr$turnout_1956,
+                       R = d_lr$running,
+                       covariates = d_lr |> 
+                         dplyr::select(c("prop_etranger", "prop_agri",
+                                         "prop_ouvriers", "prop_chom",
+                                         "budget_rev", "share_no_cep")),
+                       wstep = 0.005,
+                       wl = wl,
+                       wr = wr,
+                       reps = 10000,
+                       level = 0.1,
+                       seed = 1956)
+
+```
+
+# Covariates
+
+We can also assess whether this discontinuity appears in covariates which should not be affected by it. These are the same ones we used earlier to identify the window around which local randomisation could be expected to hold: the share of non-French peope, the share of farmers, the share of industrial workers, the unemployment rate, the department's budget revenue, and the share of people without primary education.
+
+Visually, we find no discontinuity as striking as that in Poujadist support.
+
+```{r}
+
+# rdd_no_rpf_tri_budget <- rdrobust(
+#   y = budget_rev,
+#   x = running,
+#   c = 0,
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# rdd_no_rpf_tri_budget_covs <- rdrobust(
+#   y = budget_rev,
+#   x = running,
+#   c = 0,
+#   covs = c("prop_etranger", "prop_agri", "prop_ouvriers",
+#           "prop_chom", "share_no_cep"),
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# 
+# 
+# rdd_no_rpf_tri_agri <- rdrobust(
+#   y = prop_agri,
+#   x = running,
+#   c = 0,
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# rdd_no_rpf_tri_agri_covs <- rdrobust(
+#   y = prop_agri,
+#   x = running,
+#   c = 0,
+#   covs = c("prop_etranger", #"prop_agri", 
+#            "prop_ouvriers",
+#           "prop_chom", "budget_rev", "share_no_cep"),
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# rdd_no_rpf_tri_chom <- rdrobust(
+#   y = prop_chom,
+#   x = running,
+#   c = 0,
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# rdd_no_rpf_tri_chom_covs <- rdrobust(
+#   y = prop_chom,
+#   x = running,
+#   c = 0,
+#   covs = c("prop_etranger", "prop_agri", "prop_ouvriers",
+#           "budget_rev", "share_no_cep"),
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# rdd_no_rpf_tri_etranger <- rdrobust(
+#   y = prop_etranger,
+#   x = running,
+#   c = 0,
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# rdd_no_rpf_tri_etranger_covs <- rdrobust(
+#   y = prop_etranger,
+#   x = running,
+#   c = 0,
+#   covs = c("budget_rev", "prop_agri", "prop_ouvriers",
+#           "prop_chom", "share_no_cep"),
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# rdd_no_rpf_tri_ouvriers <- rdrobust(
+#   y = prop_ouvriers,
+#   x = running,
+#   c = 0,
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# rdd_no_rpf_tri_ouvriers_covs <- rdrobust(
+#   y = prop_ouvriers,
+#   x = running,
+#   c = 0,
+#   covs = c("prop_etranger", "prop_agri", "budget_rev",
+#           "prop_chom", "share_no_cep"),
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# rdd_no_rpf_tri_no_cep <- rdrobust(
+#   y = share_no_cep,
+#   x = running,
+#   c = 0,
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# rdd_no_rpf_tri_no_cep_covs <- rdrobust(
+#   y = share_no_cep,
+#   x = running,
+#   c = 0,
+#   covs = c("prop_etranger", "prop_agri", "prop_ouvriers",
+#           "prop_chom", "budget_rev"),
+#   data = d2,
+#   kernel = "triangular"
+# )
+# 
+# summary(rdd_no_rpf_tri_agri)
+# summary(rdd_no_rpf_tri_agri_covs)
+# summary(rdd_no_rpf_tri_budget)
+# summary(rdd_no_rpf_tri_budget_covs)
+# summary(rdd_no_rpf_tri_chom)
+# summary(rdd_no_rpf_tri_chom_covs)
+# summary(rdd_no_rpf_tri_etranger)
+# summary(rdd_no_rpf_tri_etranger_covs)
+# summary(rdd_no_rpf_tri_no_cep)
+# summary(rdd_no_rpf_tri_no_cep_covs)
+# summary(rdd_no_rpf_tri_ouvriers)
+# summary(rdd_no_rpf_tri_ouvriers_covs)
+
+
+```
+
+
+```{r}
+covariates <- c(
+  "prop_etranger",
+  "prop_agri",
+  "prop_ouvriers",
+  "prop_chom",
+  "budget_rev",
+  "share_no_cep"
+)
+
+kernels <- c(
+  "triangular",
+  "uniform",
+  "epanechnikov"
+)
+
+run_rd_covariate <- function(y_var, kernel, use_covs, data) {
+  
+  # Other covariates to use as controls
+  controls <- setdiff(covariates, y_var)
+  
+  # Variables required for this specification
+  vars_needed <- if (use_covs) {
+    c(y_var, "running", controls)
+  } else {
+    c(y_var, "running")
+  }
+  
+  # Complete-case sample for this specification
+  dat <- data %>%
+    dplyr::select(dplyr::all_of(vars_needed)) %>%
+    tidyr::drop_na()
+  
+  # Construct covariate matrix
+  covs_matrix <- if (use_covs) {
+    as.matrix(dat[, controls, drop = FALSE])
+  } else {
+    NULL
+  }
+  
+  # Estimate
+  fit <- rdrobust(
+    y      = dat[[y_var]],
+    x      = dat[["running"]],   # replace "running" with your actual variable
+    c      = 0,
+    kernel = kernel,
+    covs   = covs_matrix
+  )
+  
+  tibble(
+    covariate = y_var,
+    kernel    = kernel,
+    controls  = ifelse(use_covs, "Yes", "No"),
+    n         = nrow(dat),
+    estimate  = fit$coef[1],
+    p_value   = fit$pv[3],
+    ci_lower  = fit$ci[3, 1],
+    ci_upper  = fit$ci[3, 2]
+  )
+}
+
+specs <- expand_grid(
+  covariate = covariates,
+  kernel = kernels,
+  controls = c(FALSE, TRUE)
+)
+
+balance_results <- pmap_dfr(
+  specs,
+  \(covariate, kernel, controls) {
+    run_rd_covariate(
+      y_var    = covariate,
+      kernel   = kernel,
+      use_covs = controls,
+      data     = d2            # <-- replace if your data have another name
+    )
+  }
+)
+
+#balance_results
+```
+
+```{r, fig.width=10, fig.height=5}
+
+d2 |>
+  pivot_longer(cols = c(budget_rev, prop_agri, 
+                        prop_chom, prop_etranger, 
+                        prop_ouvriers, share_no_cep),
+               names_to = "covariate",
+               values_to = "values") |>
+  mutate(crossed_50 = as.factor(apparentement_won_1951),
+         covariate = case_when(
+    covariate == "budget_rev" ~ "Revenue", 
+    covariate == "prop_agri" ~ "Share of Farmers", 
+    covariate == "prop_chom" ~ "Unemployment Rate", 
+    covariate == "prop_etranger" ~ "Share of Non-French Population", 
+    covariate == "prop_ouvriers" ~ "Share of Workers", 
+    covariate == "share_no_cep" ~ "Share Without Primary Education")) |> 
+  ggplot(aes(x = running, 
+             y = values, 
+             colour = crossed_50, 
+             fill = crossed_50)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") +
+  guides(colour = "none", fill = "none") +
+  labs(x = "Running variable", y = "") +
+  facet_wrap(~ covariate, scales = "free_y")
+
+vars <- c(
+  "budget_rev",
+  "prop_agri",
+  "prop_chom",
+  "prop_etranger",
+  "prop_ouvriers",
+  "share_no_cep"
+)
+
+labels <- c(
+  "Budget revenue",
+  "Share of Farmers",
+  "Unemployment Rate",
+  "Share of Non-French Population",
+  "Share of Workers",
+  "Share Without Primary Education"
+)
+
+plots <- Map(function(var, label) {
+  p <- rdplot(
+    y = d2[[var]],
+    x = d2$running,
+    c = 0,
+    title = label,
+    x.label = "Running variable",
+    y.label = "",
+    hide = TRUE
+  )$rdplot
+  
+  p +
+    theme(
+      plot.title = element_text(
+        size = 10,
+        hjust = 0,
+        margin = margin(b = 5)
+      ),
+      axis.title = element_text(size = 8),
+      axis.text = element_text(size = 7),
+      plot.margin = margin(5, 5, 5, 5)
+    )
+}, vars, labels)
+
+wrap_plots(c(plots), axis_titles = "collect")
+
+plots <- Map(function(var, label) {
+  p <- rdplot(
+    y = d2[[var]],
+    x = d2$running,
+    c = 0,
+    p = 1,
+    title = label,
+    x.label = "Running variable",
+    y.label = "",
+    hide = TRUE
+  )$rdplot
+  
+  p +
+    theme(
+      plot.title = element_text(
+        size = 10,
+        hjust = 0,
+        margin = margin(b = 5)
+      ),
+      axis.title = element_text(size = 8),
+      axis.text = element_text(size = 7),
+      plot.margin = margin(5, 5, 5, 5)
+    )
+}, vars, labels)
+
+wrap_plots(c(plots), axis_titles = "collect")
+
+```
+
+If we now estimate similar RD models for each variable and kernel and at the MSE optimal bandwidth, we can plot their estimates and confidence intervals. We see that, across the vast majority of specifications, there is no discontinuity at the cutoff. 
+
+```{r, fig.width=8, fig.height=6}
+
+balance_results |> 
+  filter(controls =="No") |>
+  mutate(covariate = case_when(
+    covariate == "budget_rev" ~ "Revenue", 
+    covariate == "prop_agri" ~ "Share of Farmers", 
+    covariate == "prop_chom" ~ "Unemployment Rate", 
+    covariate == "prop_etranger" ~ "Share of Non-French Population", 
+    covariate == "prop_ouvriers" ~ "Share of Workers", 
+    covariate == "share_no_cep" ~ "Share Without Primary Education")) |> 
+  ggplot(aes(x = kernel, 
+             y = estimate, 
+             ymin = ci_lower, 
+             ymax = ci_upper, 
+             #colour = controls, 
+             #shape = controls
+             )) + 
+  geom_hline(aes(yintercept = 0), linetype = "dashed") + 
+  geom_pointrange(position = position_dodge(0.5)) + 
+  facet_wrap(~ covariate, scales = "free_x") + 
+  # scale_color_manual(values = c("red3", "navy"), 
+  #                    labels = c("No other covariates", 
+  #                               "Including other covariates"), 
+  #                    name = "") + 
+  # scale_shape_manual(values = c(16, 17), 
+  #                    labels = c("No other covariates", 
+  #                               "Including other covariates"), 
+  #                    name = "") + 
+  # theme(legend.position = "bottom") + 
+  labs(x = "", y = "Point Estimate", title = "RD Estimates using each Covariate as the DV") + 
+  coord_flip()
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
